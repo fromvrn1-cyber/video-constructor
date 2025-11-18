@@ -1,5 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Plus, Trash2, Play, Pause, Settings, Users, Monitor, ChevronUp, ChevronDown, Save } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, set, onValue, update } from 'firebase/database';
+
+// Firebase конфигурация
+const firebaseConfig = {
+  apiKey: "AIzaSyC0zeRSrYsNBPCmtjK2G_O3hs3-TJI0de8",
+  authDomain: "video-constructor-98d44.firebaseapp.com",
+  databaseURL: "https://video-constructor-98d44-default-rtdb.firebaseio.com",
+  projectId: "video-constructor-98d44",
+  storageBucket: "video-constructor-98d44.firebasestorage.app",
+  messagingSenderId: "154084812278",
+  appId: "1:154084812278:web:239a8e5550e558a5e953d7"
+};
+
+// Инициализация Firebase
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
 
 const VideoConstructor = () => {
   const [currentPage, setCurrentPage] = useState('menu'); // menu, admin, user, display
@@ -549,11 +566,11 @@ const VideoConstructor = () => {
     const [userVideoElements, setUserVideoElements] = useState({});
     const [userIsPlaying, setUserIsPlaying] = useState(false);
     const userAnimationRef = useRef(null);
+    const [draggingLayer, setDraggingLayer] = useState(null);
+    const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
     // Загружаем доступные опции из сохранённого шаблона
     useEffect(() => {
-      // Здесь должна быть загрузка из API/localStorage
-      // Пока используем моковые данные
       if (templates.length > 0) {
         const template = templates[0];
         const selectableItems = template.layers.filter(l => l.userSelectable);
@@ -581,12 +598,10 @@ const VideoConstructor = () => {
     }, [userLayers, userVideoElements, userIsPlaying]);
 
     const selectOption = (option) => {
-      // Проверяем, уже выбран ли элемент этого типа
       const existingIndex = userLayers.findIndex(l => l.type === option.type);
       
       const newLayer = { ...option, id: Date.now() };
       
-      // Создаём видео элемент если это видео
       const isVideo = option.fileName && (
         option.fileName.toLowerCase().endsWith('.mp4') ||
         option.fileName.toLowerCase().endsWith('.webm') ||
@@ -609,12 +624,10 @@ const VideoConstructor = () => {
       }
 
       if (existingIndex >= 0) {
-        // Заменяем существующий
         const newLayers = [...userLayers];
         newLayers[existingIndex] = newLayer;
         setUserLayers(newLayers);
       } else {
-        // Добавляем новый
         setUserLayers([...userLayers, newLayer]);
       }
     };
@@ -623,6 +636,18 @@ const VideoConstructor = () => {
       setUserLayers(userLayers.map(layer =>
         layer.id === layerId ? { ...layer, ...updates } : layer
       ));
+    };
+
+    const removeUserLayer = (layerId) => {
+      setUserLayers(userLayers.filter(l => l.id !== layerId));
+      if (userVideoElements[layerId]) {
+        const video = userVideoElements[layerId];
+        video.pause();
+        video.src = '';
+        const newVideoElements = { ...userVideoElements };
+        delete newVideoElements[layerId];
+        setUserVideoElements(newVideoElements);
+      }
     };
 
     const toggleUserPlayback = () => {
@@ -639,10 +664,80 @@ const VideoConstructor = () => {
       }
     };
 
+    // Drag & Drop на canvas
+    const handleCanvasMouseDown = (e) => {
+      const canvas = userCanvasRef.current;
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+
+      // Проверяем, попали ли мы в какой-то слой
+      for (let i = userLayers.length - 1; i >= 0; i--) {
+        const layer = userLayers[i];
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const width = canvas.width * layer.scale;
+        const height = canvas.height * layer.scale;
+        const layerX = centerX - width / 2 + layer.position.x;
+        const layerY = centerY - height / 2 + layer.position.y;
+
+        if (x >= layerX && x <= layerX + width && y >= layerY && y <= layerY + height) {
+          setDraggingLayer(layer.id);
+          setDragOffset({ x: x - layer.position.x, y: y - layer.position.y });
+          break;
+        }
+      }
+    };
+
+    const handleCanvasMouseMove = (e) => {
+      if (!draggingLayer) return;
+
+      const canvas = userCanvasRef.current;
+      if (!canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+
+      updateUserLayer(draggingLayer, {
+        position: {
+          x: x - dragOffset.x,
+          y: y - dragOffset.y
+        }
+      });
+    };
+
+    const handleCanvasMouseUp = () => {
+      setDraggingLayer(null);
+    };
+
+    // Touch события для планшета
+    const handleCanvasTouchStart = (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      handleCanvasMouseDown({ clientX: touch.clientX, clientY: touch.clientY });
+    };
+
+    const handleCanvasTouchMove = (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      handleCanvasMouseMove({ clientX: touch.clientX, clientY: touch.clientY });
+    };
+
+    const handleCanvasTouchEnd = () => {
+      handleCanvasMouseUp();
+    };
+
     return (
-      <div className="flex h-screen bg-gray-900 text-white">
+      <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
         {/* Левая панель - выбор элементов */}
-        <div className="w-80 bg-gray-800 border-r border-gray-700 overflow-y-auto">
+        <div className="w-80 bg-gray-800 border-r border-gray-700 overflow-y-auto flex-shrink-0">
           <div className="p-4 border-b border-gray-700">
             <div className="flex justify-between items-center mb-4">
               <h1 className="text-xl font-bold">Создайте видео</h1>
@@ -654,7 +749,7 @@ const VideoConstructor = () => {
               </button>
             </div>
             <p className="text-sm text-gray-400">
-              Выберите элементы для вашего видео
+              Выберите элементы
             </p>
           </div>
 
@@ -665,140 +760,147 @@ const VideoConstructor = () => {
                 <p className="text-xs mt-2">Создайте шаблон в админке</p>
               </div>
             ) : (
-              availableOptions.map(option => (
-                <div
-                  key={option.id}
-                  className="bg-gray-700 rounded p-3 cursor-pointer hover:bg-gray-600 transition"
-                  onClick={() => selectOption(option)}
-                >
-                  <div className="aspect-video bg-gray-800 rounded mb-2 flex items-center justify-center overflow-hidden">
-                    {option.fileUrl ? (
-                      option.fileName && (
-                        option.fileName.toLowerCase().endsWith('.mp4') ||
-                        option.fileName.toLowerCase().endsWith('.webm') ||
-                        option.fileName.toLowerCase().endsWith('.mov')
-                      ) ? (
-                        <video
-                          src={option.fileUrl}
-                          className="w-full h-full object-cover"
-                          muted
-                          loop
-                          playsInline
-                        />
-                      ) : (
-                        <img
-                          src={option.fileUrl}
-                          alt={option.name}
-                          className="w-full h-full object-cover"
-                        />
-                      )
-                    ) : (
-                      <span className="text-gray-500 text-sm">Нет превью</span>
+              availableOptions.map(option => {
+                const isSelected = userLayers.some(l => l.name === option.name);
+                const selectedLayer = userLayers.find(l => l.name === option.name);
+                
+                return (
+                  <div key={option.id} className="bg-gray-700 rounded overflow-hidden">
+                    <div
+                      className="cursor-pointer hover:bg-gray-600 transition p-3"
+                      onClick={() => selectOption(option)}
+                    >
+                      <div className="aspect-video bg-gray-800 rounded mb-2 flex items-center justify-center overflow-hidden">
+                        {option.fileUrl ? (
+                          option.fileName && (
+                            option.fileName.toLowerCase().endsWith('.mp4') ||
+                            option.fileName.toLowerCase().endsWith('.webm') ||
+                            option.fileName.toLowerCase().endsWith('.mov')
+                          ) ? (
+                            <video
+                              src={option.fileUrl}
+                              className="w-full h-full object-cover"
+                              muted
+                              loop
+                              playsInline
+                            />
+                          ) : (
+                            <img
+                              src={option.fileUrl}
+                              alt={option.name}
+                              className="w-full h-full object-cover"
+                            />
+                          )
+                        ) : (
+                          <span className="text-gray-500 text-sm">Нет превью</span>
+                        )}
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <div className="font-medium">{option.name}</div>
+                          <div className="text-xs text-gray-400">{option.type}</div>
+                        </div>
+                        {isSelected && (
+                          <span className="text-xs bg-green-600 px-2 py-1 rounded">Выбрано</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Настройки под каждым превью */}
+                    {isSelected && selectedLayer && (
+                      <div className="p-3 bg-gray-800 space-y-3 border-t border-gray-700">
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <label>Прозрачность</label>
+                            <span>{Math.round(selectedLayer.opacity * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.1"
+                            value={selectedLayer.opacity}
+                            onChange={(e) => updateUserLayer(selectedLayer.id, { opacity: Number(e.target.value) })}
+                            className="w-full h-8"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between text-xs mb-1">
+                            <label>Масштаб</label>
+                            <span>{Math.round(selectedLayer.scale * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min="0.1"
+                            max="2"
+                            step="0.1"
+                            value={selectedLayer.scale}
+                            onChange={(e) => updateUserLayer(selectedLayer.id, { scale: Number(e.target.value) })}
+                            className="w-full h-8"
+                          />
+                        </div>
+
+                        <button
+                          onClick={() => removeUserLayer(selectedLayer.id)}
+                          className="w-full px-3 py-2 bg-red-600 hover:bg-red-700 rounded text-sm"
+                        >
+                          Удалить
+                        </button>
+                      </div>
                     )}
                   </div>
-                  <div className="font-medium">{option.name}</div>
-                  <div className="text-xs text-gray-400 mt-1">{option.type}</div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
-
-          {/* Выбранные элементы */}
-          {userLayers.length > 0 && (
-            <div className="p-4 border-t border-gray-700">
-              <h2 className="text-sm font-semibold mb-3">Ваш выбор ({userLayers.length})</h2>
-              {userLayers.map(layer => (
-                <div key={layer.id} className="bg-gray-700 rounded p-3 mb-3 space-y-2">
-                  <div className="font-medium text-sm">{layer.name}</div>
-                  
-                  <div>
-                    <label className="block text-xs mb-1">Прозрачность</label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.1"
-                      value={layer.opacity}
-                      onChange={(e) => updateUserLayer(layer.id, { opacity: Number(e.target.value) })}
-                      className="w-full"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs mb-1">Масштаб</label>
-                    <input
-                      type="range"
-                      min="0.1"
-                      max="2"
-                      step="0.1"
-                      value={layer.scale}
-                      onChange={(e) => updateUserLayer(layer.id, { scale: Number(e.target.value) })}
-                      className="w-full"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs mb-1">X</label>
-                      <input
-                        type="number"
-                        value={layer.position.x}
-                        onChange={(e) => updateUserLayer(layer.id, { 
-                          position: { ...layer.position, x: Number(e.target.value) }
-                        })}
-                        className="w-full px-2 py-1 bg-gray-600 rounded text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs mb-1">Y</label>
-                      <input
-                        type="number"
-                        value={layer.position.y}
-                        onChange={(e) => updateUserLayer(layer.id, { 
-                          position: { ...layer.position, y: Number(e.target.value) }
-                        })}
-                        className="w-full px-2 py-1 bg-gray-600 rounded text-xs"
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* Правая панель - превью */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
           <div className="flex-1 flex items-center justify-center bg-black p-4">
-            <canvas
-              ref={userCanvasRef}
-              width={resolution.width}
-              height={resolution.height}
-              className="max-w-full max-h-full border-2 border-gray-600"
-              style={{ 
-                width: 'auto',
-                height: 'auto',
-                maxWidth: '100%',
-                maxHeight: 'calc(100vh - 150px)'
-              }}
-            />
+            <div className="relative">
+              <canvas
+                ref={userCanvasRef}
+                width={resolution.width}
+                height={resolution.height}
+                className="max-w-full max-h-full border-2 border-gray-600 cursor-move"
+                style={{ 
+                  width: 'auto',
+                  height: 'auto',
+                  maxWidth: '100%',
+                  maxHeight: 'calc(100vh - 150px)',
+                  touchAction: 'none'
+                }}
+                onMouseDown={handleCanvasMouseDown}
+                onMouseMove={handleCanvasMouseMove}
+                onMouseUp={handleCanvasMouseUp}
+                onMouseLeave={handleCanvasMouseUp}
+                onTouchStart={handleCanvasTouchStart}
+                onTouchMove={handleCanvasTouchMove}
+                onTouchEnd={handleCanvasTouchEnd}
+              />
+              <div className="absolute top-2 left-2 bg-blue-600 bg-opacity-90 text-white px-3 py-1 rounded text-sm">
+                💡 Перетаскивайте элементы на экране
+              </div>
+            </div>
           </div>
 
           <div className="p-4 bg-gray-800 border-t border-gray-700">
             <div className="flex items-center justify-between">
               <button
                 onClick={toggleUserPlayback}
-                className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded"
+                className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded text-lg"
               >
-                {userIsPlaying ? <Pause size={20} /> : <Play size={20} />}
+                {userIsPlaying ? <Pause size={24} /> : <Play size={24} />}
                 {userIsPlaying ? 'Пауза' : 'Воспроизвести'}
               </button>
 
               <button
                 onClick={() => setCurrentPage('display')}
-                className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 rounded"
+                className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 rounded text-lg"
               >
-                <Monitor size={20} />
+                <Monitor size={24} />
                 Вывести на экран
               </button>
             </div>
