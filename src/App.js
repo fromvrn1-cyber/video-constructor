@@ -1,81 +1,77 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, Trash2, Play, Pause, Download, Image, Video, ChevronUp, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Play, Pause, Settings, Users, Monitor, ChevronUp, ChevronDown, Save } from 'lucide-react';
 
 const VideoConstructor = () => {
-  const [layers, setLayers] = useState([]);
+  const [currentPage, setCurrentPage] = useState('menu'); // menu, admin, user, display
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [resolution, setResolution] = useState({ width: 1920, height: 1080 });
+  const [userSelection, setUserSelection] = useState({});
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(10);
+  const [videoElements, setVideoElements] = useState({});
+  
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
-  const startTimeRef = useRef(null);
 
-  // Добавить новый слой
-  const addLayer = (type) => {
-    const newLayer = {
-      id: Date.now(),
-      type: type, // 'background', 'image', 'video', 'logo'
-      file: null,
-      fileUrl: null,
-      name: `${type === 'background' ? 'Фон' : type === 'image' ? 'Картинка' : type === 'video' ? 'Видео' : 'Логотип'} ${layers.length + 1}`,
-      startTime: 0,
-      duration: type === 'video' ? 5 : duration,
-      opacity: 1,
-      scale: 1,
-      position: { x: 0, y: 0 },
-      visible: true
-    };
-    setLayers([...layers, newLayer]);
-  };
-
-  // Загрузить файл
-  const handleFileUpload = (layerId, event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const url = URL.createObjectURL(file);
-    setLayers(layers.map(layer => 
-      layer.id === layerId 
-        ? { ...layer, file, fileUrl: url }
-        : layer
-    ));
-  };
-
-  // Удалить слой
-  const deleteLayer = (layerId) => {
-    setLayers(layers.filter(layer => layer.id !== layerId));
-  };
-
-  // Переместить слой
-  const moveLayer = (layerId, direction) => {
-    const index = layers.findIndex(l => l.id === layerId);
-    if (direction === 'up' && index > 0) {
-      const newLayers = [...layers];
-      [newLayers[index], newLayers[index - 1]] = [newLayers[index - 1], newLayers[index]];
-      setLayers(newLayers);
-    } else if (direction === 'down' && index < layers.length - 1) {
-      const newLayers = [...layers];
-      [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
-      setLayers(newLayers);
+  // Сохранение шаблона (имитация - в реальности нужен бэкенд)
+  const saveTemplate = (template) => {
+    const newTemplates = [...templates];
+    const index = newTemplates.findIndex(t => t.id === template.id);
+    if (index >= 0) {
+      newTemplates[index] = template;
+    } else {
+      newTemplates.push(template);
     }
+    setTemplates(newTemplates);
+    // В реальности тут должен быть API запрос для сохранения
+    console.log('Шаблон сохранён:', template);
   };
 
-  // Обновить параметры слоя
-  const updateLayer = (layerId, updates) => {
-    setLayers(layers.map(layer =>
-      layer.id === layerId ? { ...layer, ...updates } : layer
-    ));
-  };
+  // Меню выбора режима
+  const MenuPage = () => (
+    <div className="flex items-center justify-center h-screen bg-gradient-to-br from-gray-900 to-gray-800">
+      <div className="text-center">
+        <h1 className="text-5xl font-bold text-white mb-12">Конструктор видео</h1>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <button
+            onClick={() => setCurrentPage('admin')}
+            className="flex flex-col items-center gap-4 p-8 bg-blue-600 hover:bg-blue-700 rounded-xl transition"
+          >
+            <Settings size={64} className="text-white" />
+            <span className="text-2xl font-semibold text-white">Админка</span>
+            <span className="text-sm text-blue-100">Настройка контента</span>
+          </button>
 
-  // Рендеринг на canvas
-  const renderFrame = (time) => {
-    const canvas = canvasRef.current;
+          <button
+            onClick={() => setCurrentPage('user')}
+            className="flex flex-col items-center gap-4 p-8 bg-green-600 hover:bg-green-700 rounded-xl transition"
+          >
+            <Users size={64} className="text-white" />
+            <span className="text-2xl font-semibold text-white">Для пользователей</span>
+            <span className="text-sm text-green-100">Выбор элементов</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentPage('display')}
+            className="flex flex-col items-center gap-4 p-8 bg-purple-600 hover:bg-purple-700 rounded-xl transition"
+          >
+            <Monitor size={64} className="text-white" />
+            <span className="text-2xl font-semibold text-white">Экран</span>
+            <span className="text-sm text-purple-100">Лайфвью</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Рендеринг на canvas с поддержкой видео
+  const renderCanvas = (layers, canvas, videoElementsMap) => {
     if (!canvas) return;
-
+    
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Сортируем слои (фон внизу, остальное сверху)
+    // Сортируем: фон внизу, остальное сверху
     const sortedLayers = [...layers].sort((a, b) => {
       if (a.type === 'background') return -1;
       if (b.type === 'background') return 1;
@@ -84,11 +80,46 @@ const VideoConstructor = () => {
 
     sortedLayers.forEach(layer => {
       if (!layer.visible || !layer.fileUrl) return;
-      if (time < layer.startTime || time > layer.startTime + layer.duration) return;
 
       ctx.globalAlpha = layer.opacity;
+      ctx.save();
 
-      if (layer.type === 'image' || layer.type === 'background' || layer.type === 'logo') {
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+
+      // Определяем тип файла
+      const isVideo = layer.fileName && (
+        layer.fileName.toLowerCase().endsWith('.mp4') ||
+        layer.fileName.toLowerCase().endsWith('.webm') ||
+        layer.fileName.toLowerCase().endsWith('.mov')
+      );
+
+      if (isVideo && layer.type === 'background') {
+        // Видео фон
+        const video = videoElementsMap[layer.id];
+        if (video && video.readyState >= 2) {
+          const scale = layer.scale;
+          const width = canvas.width * scale;
+          const height = canvas.height * scale;
+          const x = centerX - width / 2 + layer.position.x;
+          const y = centerY - height / 2 + layer.position.y;
+          
+          ctx.drawImage(video, x, y, width, height);
+        }
+      } else if (isVideo && layer.type === 'overlay') {
+        // Видео наложение
+        const video = videoElementsMap[layer.id];
+        if (video && video.readyState >= 2) {
+          const scale = layer.scale;
+          const width = canvas.width * scale;
+          const height = canvas.height * scale;
+          const x = centerX - width / 2 + layer.position.x;
+          const y = centerY - height / 2 + layer.position.y;
+          
+          ctx.drawImage(video, x, y, width, height);
+        }
+      } else {
+        // Изображение
         const img = new window.Image();
         img.src = layer.fileUrl;
         
@@ -96,155 +127,590 @@ const VideoConstructor = () => {
           const scale = layer.scale;
           const width = canvas.width * scale;
           const height = canvas.height * scale;
-          const x = (canvas.width - width) / 2 + layer.position.x;
-          const y = (canvas.height - height) / 2 + layer.position.y;
+          const x = centerX - width / 2 + layer.position.x;
+          const y = centerY - height / 2 + layer.position.y;
           
           ctx.drawImage(img, x, y, width, height);
+        } else {
+          img.onload = () => {
+            const scale = layer.scale;
+            const width = canvas.width * scale;
+            const height = canvas.height * scale;
+            const x = centerX - width / 2 + layer.position.x;
+            const y = centerY - height / 2 + layer.position.y;
+            
+            ctx.drawImage(img, x, y, width, height);
+          };
         }
       }
+
+      ctx.restore();
     });
 
     ctx.globalAlpha = 1;
   };
 
-  // Анимация воспроизведения
-  const animate = (timestamp) => {
-    if (!startTimeRef.current) startTimeRef.current = timestamp;
-    const elapsed = (timestamp - startTimeRef.current) / 1000;
-    
-    if (elapsed <= duration) {
-      setCurrentTime(elapsed);
-      renderFrame(elapsed);
-      animationRef.current = requestAnimationFrame(animate);
-    } else {
-      setIsPlaying(false);
-      setCurrentTime(0);
-      startTimeRef.current = null;
-    }
-  };
+  // Админка
+  const AdminPage = () => {
+    const [layers, setLayers] = useState([]);
+    const [templateName, setTemplateName] = useState('');
+    const [localVideoElements, setLocalVideoElements] = useState({});
+    const [localIsPlaying, setLocalIsPlaying] = useState(false);
+    const adminCanvasRef = useRef(null);
+    const animationIdRef = useRef(null);
 
-  // Управление воспроизведением
-  const togglePlay = () => {
-    if (isPlaying) {
-      setIsPlaying(false);
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
+    // Перерисовка при изменении слоёв
+    useEffect(() => {
+      if (localIsPlaying) {
+        const animate = () => {
+          renderCanvas(layers, adminCanvasRef.current, localVideoElements);
+          animationIdRef.current = requestAnimationFrame(animate);
+        };
+        animate();
+      } else {
+        renderCanvas(layers, adminCanvasRef.current, localVideoElements);
       }
-      startTimeRef.current = null;
-    } else {
-      setIsPlaying(true);
-      startTimeRef.current = null;
-      animationRef.current = requestAnimationFrame(animate);
-    }
-  };
 
-  // Перерисовка при изменении слоев
-  useEffect(() => {
-    if (!isPlaying) {
-      renderFrame(currentTime);
-    }
-  }, [layers, currentTime]);
+      return () => {
+        if (animationIdRef.current) {
+          cancelAnimationFrame(animationIdRef.current);
+        }
+      };
+    }, [layers, localVideoElements, localIsPlaying]);
 
-  // Экспорт видео (упрощенная версия - скриншот)
-  const exportVideo = () => {
-    const canvas = canvasRef.current;
-    const link = document.createElement('a');
-    link.download = 'video-preview.png';
-    link.href = canvas.toDataURL();
-    link.click();
-  };
+    const addLayer = (type) => {
+      const newLayer = {
+        id: Date.now(),
+        type: type,
+        file: null,
+        fileUrl: null,
+        fileName: '',
+        name: `${type} ${layers.length + 1}`,
+        opacity: 1,
+        scale: 1,
+        position: { x: 0, y: 0 },
+        visible: true,
+        userSelectable: type !== 'background' // Фон не выбирается пользователем
+      };
+      setLayers([...layers, newLayer]);
+    };
 
-  return (
-    <div className="flex h-screen bg-gray-900 text-white">
-      {/* Админка (левая панель) */}
-      <div className="w-96 bg-gray-800 border-r border-gray-700 overflow-y-auto">
-        <div className="p-4 border-b border-gray-700">
-          <h1 className="text-xl font-bold mb-4">Конструктор видео</h1>
-          
-          {/* Кнопки добавления слоев */}
-          <div className="space-y-2">
+    const handleFileUpload = (layerId, event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const url = URL.createObjectURL(file);
+      const isVideo = file.type.startsWith('video/');
+
+      if (isVideo) {
+        // Создаём видео элемент
+        const video = document.createElement('video');
+        video.src = url;
+        video.loop = true;
+        video.muted = true;
+        video.playsInline = true;
+        
+        video.onloadeddata = () => {
+          setLocalVideoElements(prev => ({
+            ...prev,
+            [layerId]: video
+          }));
+        };
+      }
+
+      setLayers(layers.map(layer => 
+        layer.id === layerId 
+          ? { ...layer, file, fileUrl: url, fileName: file.name }
+          : layer
+      ));
+      
+      // Перерисовываем сразу после загрузки
+      setTimeout(() => {
+        renderCanvas(layers.map(l => 
+          l.id === layerId ? { ...l, file, fileUrl: url, fileName: file.name } : l
+        ), adminCanvasRef.current, localVideoElements);
+      }, 100);
+    };
+
+    const deleteLayer = (layerId) => {
+      // Удаляем видео элемент если есть
+      if (localVideoElements[layerId]) {
+        const video = localVideoElements[layerId];
+        video.pause();
+        video.src = '';
+        const newVideoElements = { ...localVideoElements };
+        delete newVideoElements[layerId];
+        setLocalVideoElements(newVideoElements);
+      }
+      
+      setLayers(layers.filter(layer => layer.id !== layerId));
+    };
+
+    const updateLayer = (layerId, updates) => {
+      setLayers(layers.map(layer =>
+        layer.id === layerId ? { ...layer, ...updates } : layer
+      ));
+    };
+
+    const moveLayer = (layerId, direction) => {
+      const index = layers.findIndex(l => l.id === layerId);
+      if (direction === 'up' && index > 0) {
+        const newLayers = [...layers];
+        [newLayers[index], newLayers[index - 1]] = [newLayers[index - 1], newLayers[index]];
+        setLayers(newLayers);
+      } else if (direction === 'down' && index < layers.length - 1) {
+        const newLayers = [...layers];
+        [newLayers[index], newLayers[index + 1]] = [newLayers[index + 1], newLayers[index]];
+        setLayers(newLayers);
+      }
+    };
+
+    const saveCurrentTemplate = () => {
+      const template = {
+        id: Date.now(),
+        name: templateName || 'Новый шаблон',
+        layers,
+        resolution
+      };
+      saveTemplate(template);
+      alert('Шаблон сохранён!');
+    };
+
+    const togglePlayback = () => {
+      if (localIsPlaying) {
+        // Останавливаем все видео
+        Object.values(localVideoElements).forEach(video => {
+          if (video) video.pause();
+        });
+        setLocalIsPlaying(false);
+      } else {
+        // Запускаем все видео
+        Object.values(localVideoElements).forEach(video => {
+          if (video) video.play();
+        });
+        setLocalIsPlaying(true);
+      }
+    };
+
+    return (
+      <div className="flex h-screen bg-gray-900 text-white">
+        <div className="w-96 bg-gray-800 border-r border-gray-700 overflow-y-auto">
+          <div className="p-4 border-b border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <h1 className="text-xl font-bold">Админка</h1>
+              <button
+                onClick={() => setCurrentPage('menu')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              >
+                Назад
+              </button>
+            </div>
+
+            {/* Разрешение */}
+            <div className="mb-4">
+              <label className="block text-sm mb-2">Разрешение видео</label>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="number"
+                  value={resolution.width}
+                  onChange={(e) => setResolution({ ...resolution, width: Number(e.target.value) })}
+                  className="px-3 py-2 bg-gray-700 rounded"
+                  placeholder="Ширина"
+                />
+                <input
+                  type="number"
+                  value={resolution.height}
+                  onChange={(e) => setResolution({ ...resolution, height: Number(e.target.value) })}
+                  className="px-3 py-2 bg-gray-700 rounded"
+                  placeholder="Высота"
+                />
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={() => setResolution({ width: 1920, height: 1080 })}
+                  className="flex-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
+                >
+                  1920x1080
+                </button>
+                <button
+                  onClick={() => setResolution({ width: 1280, height: 720 })}
+                  className="flex-1 px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
+                >
+                  1280x720
+                </button>
+              </div>
+            </div>
+
+            {/* Название шаблона */}
+            <div className="mb-4">
+              <label className="block text-sm mb-2">Название шаблона</label>
+              <input
+                type="text"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-700 rounded"
+                placeholder="Мой шаблон"
+              />
+            </div>
+
+            {/* Кнопки добавления */}
+            <div className="space-y-2">
+              <button
+                onClick={() => addLayer('background')}
+                className="w-full flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
+              >
+                <Plus size={18} />
+                Фон (видео/картинка)
+              </button>
+              <button
+                onClick={() => addLayer('overlay')}
+                className="w-full flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded"
+              >
+                <Plus size={18} />
+                Наложение (видео)
+              </button>
+              <button
+                onClick={() => addLayer('image')}
+                className="w-full flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded"
+              >
+                <Plus size={18} />
+                Картинка
+              </button>
+            </div>
+
             <button
-              onClick={() => addLayer('background')}
-              className="w-full flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
+              onClick={saveCurrentTemplate}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded mt-4"
             >
-              <Image size={18} />
-              Добавить фон
-            </button>
-            <button
-              onClick={() => addLayer('image')}
-              className="w-full flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded"
-            >
-              <Image size={18} />
-              Добавить картинку
-            </button>
-            <button
-              onClick={() => addLayer('logo')}
-              className="w-full flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded"
-            >
-              <Image size={18} />
-              Добавить логотип
+              <Save size={18} />
+              Сохранить шаблон
             </button>
           </div>
 
-          {/* Длительность видео */}
-          <div className="mt-4">
-            <label className="block text-sm mb-2">Длительность видео (сек)</label>
-            <input
-              type="number"
-              value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
-              className="w-full px-3 py-2 bg-gray-700 rounded"
-              min="1"
-              max="60"
-            />
+          {/* Список слоёв */}
+          <div className="p-4 space-y-3">
+            <h2 className="text-lg font-semibold">Слои ({layers.length})</h2>
+            
+            {layers.length === 0 && (
+              <p className="text-gray-400 text-sm">Добавьте слои</p>
+            )}
+
+            {layers.map((layer, index) => (
+              <div key={layer.id} className="bg-gray-700 rounded p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <input
+                    type="text"
+                    value={layer.name}
+                    onChange={(e) => updateLayer(layer.id, { name: e.target.value })}
+                    className="flex-1 px-2 py-1 bg-gray-600 rounded text-sm mr-2"
+                  />
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => moveLayer(layer.id, 'up')}
+                      className="p-1 hover:bg-gray-600 rounded"
+                    >
+                      <ChevronUp size={16} />
+                    </button>
+                    <button
+                      onClick={() => moveLayer(layer.id, 'down')}
+                      className="p-1 hover:bg-gray-600 rounded"
+                    >
+                      <ChevronDown size={16} />
+                    </button>
+                    <button
+                      onClick={() => deleteLayer(layer.id)}
+                      className="p-1 hover:bg-red-600 rounded"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={(e) => handleFileUpload(layer.id, e)}
+                  className="w-full text-xs"
+                />
+
+                {layer.fileName && (
+                  <div className="text-xs text-green-400">📎 {layer.fileName}</div>
+                )}
+
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={layer.userSelectable}
+                    onChange={(e) => updateLayer(layer.id, { userSelectable: e.target.checked })}
+                  />
+                  Выбирается пользователем
+                </label>
+
+                {layer.fileUrl && (
+                  <>
+                    <div>
+                      <label className="block text-xs mb-1">Прозрачность</label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.1"
+                        value={layer.opacity}
+                        onChange={(e) => updateLayer(layer.id, { opacity: Number(e.target.value) })}
+                        className="w-full"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs mb-1">Масштаб</label>
+                      <input
+                        type="range"
+                        min="0.1"
+                        max="3"
+                        step="0.1"
+                        value={layer.scale}
+                        onChange={(e) => updateLayer(layer.id, { scale: Number(e.target.value) })}
+                        className="w-full"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs mb-1">X</label>
+                        <input
+                          type="number"
+                          value={layer.position.x}
+                          onChange={(e) => updateLayer(layer.id, { 
+                            position: { ...layer.position, x: Number(e.target.value) }
+                          })}
+                          className="w-full px-2 py-1 bg-gray-600 rounded text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs mb-1">Y</label>
+                        <input
+                          type="number"
+                          value={layer.position.y}
+                          onChange={(e) => updateLayer(layer.id, { 
+                            position: { ...layer.position, y: Number(e.target.value) }
+                          })}
+                          className="w-full px-2 py-1 bg-gray-600 rounded text-xs"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Список слоев */}
-        <div className="p-4 space-y-3">
-          <h2 className="text-lg font-semibold mb-3">Слои ({layers.length})</h2>
+        <div className="flex-1 flex flex-col items-center justify-center bg-black p-4">
+          <div className="text-center w-full flex-1 flex items-center justify-center">
+            <canvas
+              ref={adminCanvasRef}
+              width={resolution.width}
+              height={resolution.height}
+              className="max-w-full max-h-full border-2 border-gray-600"
+              style={{ 
+                width: 'auto',
+                height: 'auto',
+                maxWidth: '100%',
+                maxHeight: 'calc(100vh - 150px)'
+              }}
+            />
+          </div>
           
-          {layers.length === 0 && (
-            <p className="text-gray-400 text-sm">Добавьте слои, чтобы начать</p>
-          )}
-
-          {layers.map((layer, index) => (
-            <div key={layer.id} className="bg-gray-700 rounded p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="font-medium">{layer.name}</span>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => moveLayer(layer.id, 'up')}
-                    className="p-1 hover:bg-gray-600 rounded"
-                    disabled={index === 0}
-                  >
-                    <ChevronUp size={16} />
-                  </button>
-                  <button
-                    onClick={() => moveLayer(layer.id, 'down')}
-                    className="p-1 hover:bg-gray-600 rounded"
-                    disabled={index === layers.length - 1}
-                  >
-                    <ChevronDown size={16} />
-                  </button>
-                  <button
-                    onClick={() => deleteLayer(layer.id)}
-                    className="p-1 hover:bg-red-600 rounded"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
+          <div className="w-full max-w-2xl p-4 bg-gray-800 rounded">
+            <div className="flex items-center justify-center gap-4">
+              <button
+                onClick={togglePlayback}
+                className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded"
+              >
+                {localIsPlaying ? <Pause size={20} /> : <Play size={20} />}
+                {localIsPlaying ? 'Пауза' : 'Воспроизвести'}
+              </button>
+              
+              <div className="text-gray-400 text-sm">
+                Разрешение: {resolution.width}x{resolution.height}
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
-              <input
-                type="file"
-                accept="image/*,video/*"
-                onChange={(e) => handleFileUpload(layer.id, e)}
-                className="w-full text-sm"
-              />
+  // Пользовательский интерфейс
+  const UserPage = () => {
+    const [userLayers, setUserLayers] = useState([]);
+    const [availableOptions, setAvailableOptions] = useState([]);
+    const userCanvasRef = useRef(null);
+    const [userVideoElements, setUserVideoElements] = useState({});
+    const [userIsPlaying, setUserIsPlaying] = useState(false);
+    const userAnimationRef = useRef(null);
 
-              {layer.fileUrl && (
-                <>
+    // Загружаем доступные опции из сохранённого шаблона
+    useEffect(() => {
+      // Здесь должна быть загрузка из API/localStorage
+      // Пока используем моковые данные
+      if (templates.length > 0) {
+        const template = templates[0];
+        const selectableItems = template.layers.filter(l => l.userSelectable);
+        setAvailableOptions(selectableItems);
+      }
+    }, [templates]);
+
+    // Рендеринг пользовательского canvas
+    useEffect(() => {
+      if (userIsPlaying) {
+        const animate = () => {
+          renderCanvas(userLayers, userCanvasRef.current, userVideoElements);
+          userAnimationRef.current = requestAnimationFrame(animate);
+        };
+        animate();
+      } else {
+        renderCanvas(userLayers, userCanvasRef.current, userVideoElements);
+      }
+
+      return () => {
+        if (userAnimationRef.current) {
+          cancelAnimationFrame(userAnimationRef.current);
+        }
+      };
+    }, [userLayers, userVideoElements, userIsPlaying]);
+
+    const selectOption = (option) => {
+      // Проверяем, уже выбран ли элемент этого типа
+      const existingIndex = userLayers.findIndex(l => l.type === option.type);
+      
+      const newLayer = { ...option, id: Date.now() };
+      
+      // Создаём видео элемент если это видео
+      const isVideo = option.fileName && (
+        option.fileName.toLowerCase().endsWith('.mp4') ||
+        option.fileName.toLowerCase().endsWith('.webm') ||
+        option.fileName.toLowerCase().endsWith('.mov')
+      );
+
+      if (isVideo) {
+        const video = document.createElement('video');
+        video.src = option.fileUrl;
+        video.loop = true;
+        video.muted = true;
+        video.playsInline = true;
+        
+        video.onloadeddata = () => {
+          setUserVideoElements(prev => ({
+            ...prev,
+            [newLayer.id]: video
+          }));
+        };
+      }
+
+      if (existingIndex >= 0) {
+        // Заменяем существующий
+        const newLayers = [...userLayers];
+        newLayers[existingIndex] = newLayer;
+        setUserLayers(newLayers);
+      } else {
+        // Добавляем новый
+        setUserLayers([...userLayers, newLayer]);
+      }
+    };
+
+    const updateUserLayer = (layerId, updates) => {
+      setUserLayers(userLayers.map(layer =>
+        layer.id === layerId ? { ...layer, ...updates } : layer
+      ));
+    };
+
+    const toggleUserPlayback = () => {
+      if (userIsPlaying) {
+        Object.values(userVideoElements).forEach(video => {
+          if (video) video.pause();
+        });
+        setUserIsPlaying(false);
+      } else {
+        Object.values(userVideoElements).forEach(video => {
+          if (video) video.play();
+        });
+        setUserIsPlaying(true);
+      }
+    };
+
+    return (
+      <div className="flex h-screen bg-gray-900 text-white">
+        {/* Левая панель - выбор элементов */}
+        <div className="w-80 bg-gray-800 border-r border-gray-700 overflow-y-auto">
+          <div className="p-4 border-b border-gray-700">
+            <div className="flex justify-between items-center mb-4">
+              <h1 className="text-xl font-bold">Создайте видео</h1>
+              <button
+                onClick={() => setCurrentPage('menu')}
+                className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+              >
+                Назад
+              </button>
+            </div>
+            <p className="text-sm text-gray-400">
+              Выберите элементы для вашего видео
+            </p>
+          </div>
+
+          <div className="p-4 space-y-4">
+            {availableOptions.length === 0 ? (
+              <div className="text-center text-gray-400 py-8">
+                <p>Нет доступных элементов</p>
+                <p className="text-xs mt-2">Создайте шаблон в админке</p>
+              </div>
+            ) : (
+              availableOptions.map(option => (
+                <div
+                  key={option.id}
+                  className="bg-gray-700 rounded p-3 cursor-pointer hover:bg-gray-600 transition"
+                  onClick={() => selectOption(option)}
+                >
+                  <div className="aspect-video bg-gray-800 rounded mb-2 flex items-center justify-center overflow-hidden">
+                    {option.fileUrl ? (
+                      option.fileName && (
+                        option.fileName.toLowerCase().endsWith('.mp4') ||
+                        option.fileName.toLowerCase().endsWith('.webm') ||
+                        option.fileName.toLowerCase().endsWith('.mov')
+                      ) ? (
+                        <video
+                          src={option.fileUrl}
+                          className="w-full h-full object-cover"
+                          muted
+                          loop
+                          playsInline
+                        />
+                      ) : (
+                        <img
+                          src={option.fileUrl}
+                          alt={option.name}
+                          className="w-full h-full object-cover"
+                        />
+                      )
+                    ) : (
+                      <span className="text-gray-500 text-sm">Нет превью</span>
+                    )}
+                  </div>
+                  <div className="font-medium">{option.name}</div>
+                  <div className="text-xs text-gray-400 mt-1">{option.type}</div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Выбранные элементы */}
+          {userLayers.length > 0 && (
+            <div className="p-4 border-t border-gray-700">
+              <h2 className="text-sm font-semibold mb-3">Ваш выбор ({userLayers.length})</h2>
+              {userLayers.map(layer => (
+                <div key={layer.id} className="bg-gray-700 rounded p-3 mb-3 space-y-2">
+                  <div className="font-medium text-sm">{layer.name}</div>
+                  
                   <div>
                     <label className="block text-xs mb-1">Прозрачность</label>
                     <input
@@ -253,7 +719,7 @@ const VideoConstructor = () => {
                       max="1"
                       step="0.1"
                       value={layer.opacity}
-                      onChange={(e) => updateLayer(layer.id, { opacity: Number(e.target.value) })}
+                      onChange={(e) => updateUserLayer(layer.id, { opacity: Number(e.target.value) })}
                       className="w-full"
                     />
                   </div>
@@ -266,108 +732,206 @@ const VideoConstructor = () => {
                       max="2"
                       step="0.1"
                       value={layer.scale}
-                      onChange={(e) => updateLayer(layer.id, { scale: Number(e.target.value) })}
+                      onChange={(e) => updateUserLayer(layer.id, { scale: Number(e.target.value) })}
                       className="w-full"
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-xs mb-1">X позиция</label>
+                      <label className="block text-xs mb-1">X</label>
                       <input
                         type="number"
                         value={layer.position.x}
-                        onChange={(e) => updateLayer(layer.id, { 
+                        onChange={(e) => updateUserLayer(layer.id, { 
                           position: { ...layer.position, x: Number(e.target.value) }
                         })}
-                        className="w-full px-2 py-1 bg-gray-600 rounded text-sm"
+                        className="w-full px-2 py-1 bg-gray-600 rounded text-xs"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs mb-1">Y позиция</label>
+                      <label className="block text-xs mb-1">Y</label>
                       <input
                         type="number"
                         value={layer.position.y}
-                        onChange={(e) => updateLayer(layer.id, { 
+                        onChange={(e) => updateUserLayer(layer.id, { 
                           position: { ...layer.position, y: Number(e.target.value) }
                         })}
-                        className="w-full px-2 py-1 bg-gray-600 rounded text-sm"
+                        className="w-full px-2 py-1 bg-gray-600 rounded text-xs"
                       />
                     </div>
                   </div>
-
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={layer.visible}
-                      onChange={(e) => updateLayer(layer.id, { visible: e.target.checked })}
-                    />
-                    <span className="text-sm">Видимый</span>
-                  </label>
-                </>
-              )}
+                </div>
+              ))}
             </div>
-          ))}
+          )}
+        </div>
+
+        {/* Правая панель - превью */}
+        <div className="flex-1 flex flex-col">
+          <div className="flex-1 flex items-center justify-center bg-black p-4">
+            <canvas
+              ref={userCanvasRef}
+              width={resolution.width}
+              height={resolution.height}
+              className="max-w-full max-h-full border-2 border-gray-600"
+              style={{ 
+                width: 'auto',
+                height: 'auto',
+                maxWidth: '100%',
+                maxHeight: 'calc(100vh - 150px)'
+              }}
+            />
+          </div>
+
+          <div className="p-4 bg-gray-800 border-t border-gray-700">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={toggleUserPlayback}
+                className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded"
+              >
+                {userIsPlaying ? <Pause size={20} /> : <Play size={20} />}
+                {userIsPlaying ? 'Пауза' : 'Воспроизвести'}
+              </button>
+
+              <button
+                onClick={() => setCurrentPage('display')}
+                className="flex items-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 rounded"
+              >
+                <Monitor size={20} />
+                Вывести на экран
+              </button>
+            </div>
+          </div>
         </div>
       </div>
+    );
+  };
 
-      {/* Превью (правая панель) */}
-      <div className="flex-1 flex flex-col">
-        <div className="flex-1 flex items-center justify-center bg-black">
+  // Экран (лайфвью)
+  const DisplayPage = () => {
+    const displayCanvasRef = useRef(null);
+    const [displayVideoElements, setDisplayVideoElements] = useState({});
+    const [displayIsPlaying, setDisplayIsPlaying] = useState(true);
+    const displayAnimationRef = useRef(null);
+    const [displayLayers, setDisplayLayers] = useState([]);
+
+    // Загружаем данные при открытии
+    useEffect(() => {
+      // Здесь должна быть загрузка актуальной композиции
+      // Пока используем моковые данные из шаблона
+      if (templates.length > 0) {
+        const template = templates[0];
+        setDisplayLayers(template.layers);
+
+        // Создаём видео элементы
+        template.layers.forEach(layer => {
+          if (layer.fileUrl && layer.fileName) {
+            const isVideo = layer.fileName.toLowerCase().endsWith('.mp4') ||
+                          layer.fileName.toLowerCase().endsWith('.webm') ||
+                          layer.fileName.toLowerCase().endsWith('.mov');
+            
+            if (isVideo) {
+              const video = document.createElement('video');
+              video.src = layer.fileUrl;
+              video.loop = true;
+              video.muted = true;
+              video.playsInline = true;
+              video.autoplay = true;
+              
+              video.onloadeddata = () => {
+                video.play();
+                setDisplayVideoElements(prev => ({
+                  ...prev,
+                  [layer.id]: video
+                }));
+              };
+            }
+          }
+        });
+      }
+    }, [templates]);
+
+    // Рендеринг
+    useEffect(() => {
+      if (displayIsPlaying) {
+        const animate = () => {
+          renderCanvas(displayLayers, displayCanvasRef.current, displayVideoElements);
+          displayAnimationRef.current = requestAnimationFrame(animate);
+        };
+        animate();
+      } else {
+        renderCanvas(displayLayers, displayCanvasRef.current, displayVideoElements);
+      }
+
+      return () => {
+        if (displayAnimationRef.current) {
+          cancelAnimationFrame(displayAnimationRef.current);
+        }
+      };
+    }, [displayLayers, displayVideoElements, displayIsPlaying]);
+
+    const toggleFullscreen = () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        document.exitFullscreen();
+      }
+    };
+
+    return (
+      <div className="h-screen bg-black flex flex-col items-center justify-center relative">
+        <div className="flex-1 flex items-center justify-center w-full">
           <canvas
-            ref={canvasRef}
-            width={1280}
-            height={720}
-            className="max-w-full max-h-full border-2 border-gray-600"
+            ref={displayCanvasRef}
+            width={resolution.width}
+            height={resolution.height}
+            className="max-w-full max-h-full"
+            style={{ 
+              width: 'auto',
+              height: 'auto',
+              maxWidth: '100%',
+              maxHeight: '100%'
+            }}
           />
         </div>
 
-        {/* Панель управления */}
-        <div className="bg-gray-800 p-4 border-t border-gray-700">
-          <div className="flex items-center gap-4 mb-3">
-            <button
-              onClick={togglePlay}
-              className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded"
-            >
-              {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-              {isPlaying ? 'Пауза' : 'Воспроизвести'}
-            </button>
+        {/* Панель управления (появляется при наведении) */}
+        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-800 bg-opacity-90 rounded-lg p-3 flex gap-3">
+          <button
+            onClick={() => setDisplayIsPlaying(!displayIsPlaying)}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded flex items-center gap-2"
+          >
+            {displayIsPlaying ? <Pause size={18} /> : <Play size={18} />}
+          </button>
 
-            <button
-              onClick={exportVideo}
-              className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 rounded"
-            >
-              <Download size={20} />
-              Экспорт (скриншот)
-            </button>
+          <button
+            onClick={toggleFullscreen}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded flex items-center gap-2"
+          >
+            <Monitor size={18} />
+            Полный экран
+          </button>
 
-            <div className="flex-1">
-              <div className="flex justify-between text-sm mb-1">
-                <span>{currentTime.toFixed(1)}s</span>
-                <span>{duration}s</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max={duration}
-                step="0.1"
-                value={currentTime}
-                onChange={(e) => {
-                  const time = Number(e.target.value);
-                  setCurrentTime(time);
-                  renderFrame(time);
-                }}
-                className="w-full"
-              />
-            </div>
-          </div>
-
-          <div className="text-xs text-gray-400">
-            💡 Совет: Фоновые слои отображаются внизу, картинки и логотипы - сверху. Используйте стрелки для изменения порядка.
-          </div>
+          <button
+            onClick={() => setCurrentPage('menu')}
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm"
+          >
+            Закрыть
+          </button>
         </div>
       </div>
-    </div>
+    );
+  };
+
+  // Роутинг
+  return (
+    <>
+      {currentPage === 'menu' && <MenuPage />}
+      {currentPage === 'admin' && <AdminPage />}
+      {currentPage === 'user' && <UserPage />}
+      {currentPage === 'display' && <DisplayPage />}
+    </>
   );
 };
 
