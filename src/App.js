@@ -1,152 +1,50 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Plus, Trash2, Play, Pause, Settings, Users, Monitor, ChevronUp, ChevronDown, Save } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, set, onValue, update } from 'firebase/database';
-
-// Firebase конфигурация
-const firebaseConfig = {
-  apiKey: "AIzaSyC0zeRSrYsNBPCmtjK2G_O3hs3-TJI0de8",
-  authDomain: "video-constructor-98d44.firebaseapp.com",
-  databaseURL: "https://video-constructor-98d44-default-rtdb.firebaseio.com",
-  projectId: "video-constructor-98d44",
-  storageBucket: "video-constructor-98d44.firebasestorage.app",
-  messagingSenderId: "154084812278",
-  appId: "1:154084812278:web:239a8e5550e558a5e953d7"
-};
-
-// Инициализация Firebase
-const app = initializeApp(firebaseConfig);
-const database = getDatabase(app);
+import { uploadFile, getFileUrl } from './api';
 
 const VideoConstructor = () => {
-  const [currentPage, setCurrentPage] = useState('menu'); // menu, admin, user, display
-  const [templates, setTemplates] = useState([]);
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [currentPage, setCurrentPage] = useState('menu');
   const [resolution, setResolution] = useState({ width: 1920, height: 1080 });
-  const [userSelection, setUserSelection] = useState({});
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [videoElements, setVideoElements] = useState({});
-  
-  const canvasRef = useRef(null);
-  const animationRef = useRef(null);
 
-  // Сохранение шаблона (имитация - в реальности нужен бэкенд)
-  const saveTemplate = (template) => {
-    const newTemplates = [...templates];
-    const index = newTemplates.findIndex(t => t.id === template.id);
-    if (index >= 0) {
-      newTemplates[index] = template;
-    } else {
-      newTemplates.push(template);
-    }
-    setTemplates(newTemplates);
-    // В реальности тут должен быть API запрос для сохранения
-    console.log('Шаблон сохранён:', template);
-  };
-
-  // Меню выбора режима
-  const MenuPage = () => (
-    <div className="flex items-center justify-center h-screen bg-gradient-to-br from-gray-900 to-gray-800">
-      <div className="text-center">
-        <h1 className="text-5xl font-bold text-white mb-12">Конструктор видео</h1>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <button
-            onClick={() => setCurrentPage('admin')}
-            className="flex flex-col items-center gap-4 p-8 bg-blue-600 hover:bg-blue-700 rounded-xl transition"
-          >
-            <Settings size={64} className="text-white" />
-            <span className="text-2xl font-semibold text-white">Админка</span>
-            <span className="text-sm text-blue-100">Настройка контента</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentPage('user')}
-            className="flex flex-col items-center gap-4 p-8 bg-green-600 hover:bg-green-700 rounded-xl transition"
-          >
-            <Users size={64} className="text-white" />
-            <span className="text-2xl font-semibold text-white">Для пользователей</span>
-            <span className="text-sm text-green-100">Выбор элементов</span>
-          </button>
-
-          <button
-            onClick={() => setCurrentPage('display')}
-            className="flex flex-col items-center gap-4 p-8 bg-purple-600 hover:bg-purple-700 rounded-xl transition"
-          >
-            <Monitor size={64} className="text-white" />
-            <span className="text-2xl font-semibold text-white">Экран</span>
-            <span className="text-sm text-purple-100">Лайфвью</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  // Рендеринг на canvas с поддержкой видео
   const renderCanvas = (layers, canvas, videoElementsMap) => {
     if (!canvas) return;
-    
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Сортируем: фон внизу, остальное сверху
     const sortedLayers = [...layers].sort((a, b) => {
       if (a.type === 'background') return -1;
       if (b.type === 'background') return 1;
       return 0;
     });
-
     sortedLayers.forEach(layer => {
       if (!layer.visible || !layer.fileUrl) return;
-
       ctx.globalAlpha = layer.opacity;
       ctx.save();
-
       const centerX = canvas.width / 2;
       const centerY = canvas.height / 2;
-
-      // Определяем тип файла
       const isVideo = layer.fileName && (
         layer.fileName.toLowerCase().endsWith('.mp4') ||
         layer.fileName.toLowerCase().endsWith('.webm') ||
         layer.fileName.toLowerCase().endsWith('.mov')
       );
-
-      if (isVideo && layer.type === 'background') {
-        // Видео фон
+      if (isVideo && videoElementsMap[layer.id]) {
         const video = videoElementsMap[layer.id];
-        if (video && video.readyState >= 2) {
+        if (video.readyState >= 2) {
           const scale = layer.scale;
           const width = canvas.width * scale;
           const height = canvas.height * scale;
           const x = centerX - width / 2 + layer.position.x;
           const y = centerY - height / 2 + layer.position.y;
-          
-          ctx.drawImage(video, x, y, width, height);
-        }
-      } else if (isVideo && layer.type === 'overlay') {
-        // Видео наложение
-        const video = videoElementsMap[layer.id];
-        if (video && video.readyState >= 2) {
-          const scale = layer.scale;
-          const width = canvas.width * scale;
-          const height = canvas.height * scale;
-          const x = centerX - width / 2 + layer.position.x;
-          const y = centerY - height / 2 + layer.position.y;
-          
           ctx.drawImage(video, x, y, width, height);
         }
       } else {
-        // Изображение
         const img = new window.Image();
-        img.src = layer.fileUrl;
-        
+        img.src = getFileUrl(layer.fileUrl);
         if (img.complete) {
           const scale = layer.scale;
           const width = canvas.width * scale;
           const height = canvas.height * scale;
           const x = centerX - width / 2 + layer.position.x;
           const y = centerY - height / 2 + layer.position.y;
-          
           ctx.drawImage(img, x, y, width, height);
         } else {
           img.onload = () => {
@@ -155,20 +53,40 @@ const VideoConstructor = () => {
             const height = canvas.height * scale;
             const x = centerX - width / 2 + layer.position.x;
             const y = centerY - height / 2 + layer.position.y;
-            
             ctx.drawImage(img, x, y, width, height);
           };
         }
       }
-
       ctx.restore();
     });
-
     ctx.globalAlpha = 1;
   };
 
-  // Админка
-  const AdminPage = () => {
+  const MenuPage = () => (
+    <div className="flex items-center justify-center h-screen bg-gradient-to-br from-gray-900 to-gray-800">
+      <div className="text-center">
+        <h1 className="text-5xl font-bold text-white mb-12">Конструктор видео</h1>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <button onClick={() => setCurrentPage('admin')} className="flex flex-col items-center gap-4 p-8 bg-blue-600 hover:bg-blue-700 rounded-xl transition">
+            <Settings size={64} className="text-white" />
+            <span className="text-2xl font-semibold text-white">Админка</span>
+            <span className="text-sm text-blue-100">Настройка контента</span>
+          </button>
+          <button onClick={() => setCurrentPage('user')} className="flex flex-col items-center gap-4 p-8 bg-green-600 hover:bg-green-700 rounded-xl transition">
+            <Users size={64} className="text-white" />
+            <span className="text-2xl font-semibold text-white">Для пользователей</span>
+            <span className="text-sm text-green-100">Выбор элементов</span>
+          </button>
+          <button onClick={() => setCurrentPage('display')} className="flex flex-col items-center gap-4 p-8 bg-purple-600 hover:bg-purple-700 rounded-xl transition">
+            <Monitor size={64} className="text-white" />
+            <span className="text-2xl font-semibold text-white">Экран</span>
+            <span className="text-sm text-purple-100">Лайфвью</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+const AdminPage = () => {
     const [layers, setLayers] = useState([]);
     const [templateName, setTemplateName] = useState('');
     const [localVideoElements, setLocalVideoElements] = useState({});
@@ -176,7 +94,6 @@ const VideoConstructor = () => {
     const adminCanvasRef = useRef(null);
     const animationIdRef = useRef(null);
 
-    // Перерисовка при изменении слоёв
     useEffect(() => {
       if (localIsPlaying) {
         const animate = () => {
@@ -187,7 +104,6 @@ const VideoConstructor = () => {
       } else {
         renderCanvas(layers, adminCanvasRef.current, localVideoElements);
       }
-
       return () => {
         if (animationIdRef.current) {
           cancelAnimationFrame(animationIdRef.current);
@@ -207,50 +123,46 @@ const VideoConstructor = () => {
         scale: 1,
         position: { x: 0, y: 0 },
         visible: true,
-        userSelectable: type !== 'background' // Фон не выбирается пользователем
+        userSelectable: type !== 'background'
       };
       setLayers([...layers, newLayer]);
     };
 
-    const handleFileUpload = (layerId, event) => {
+    const handleFileUpload = async (layerId, event) => {
       const file = event.target.files[0];
       if (!file) return;
-
-      const url = URL.createObjectURL(file);
-      const isVideo = file.type.startsWith('video/');
-
-      if (isVideo) {
-        // Создаём видео элемент
-        const video = document.createElement('video');
-        video.src = url;
-        video.loop = true;
-        video.muted = true;
-        video.playsInline = true;
-        
-        video.onloadeddata = () => {
-          setLocalVideoElements(prev => ({
-            ...prev,
-            [layerId]: video
-          }));
-        };
+      try {
+        const result = await uploadFile(file);
+        if (result.success) {
+          const isVideo = file.type.startsWith('video/');
+          if (isVideo) {
+            const video = document.createElement('video');
+            video.src = getFileUrl(result.path);
+            video.loop = true;
+            video.muted = true;
+            video.playsInline = true;
+            video.onloadeddata = () => {
+              setLocalVideoElements(prev => ({
+                ...prev,
+                [layerId]: video
+              }));
+            };
+          }
+          setLayers(layers.map(layer => 
+            layer.id === layerId 
+              ? { ...layer, file, fileUrl: result.path, fileName: result.filename }
+              : layer
+          ));
+        } else {
+          alert('Ошибка загрузки файла: ' + result.error);
+        }
+      } catch (error) {
+        console.error('Upload error:', error);
+        alert('Ошибка загрузки файла');
       }
-
-      setLayers(layers.map(layer => 
-        layer.id === layerId 
-          ? { ...layer, file, fileUrl: url, fileName: file.name }
-          : layer
-      ));
-      
-      // Перерисовываем сразу после загрузки
-      setTimeout(() => {
-        renderCanvas(layers.map(l => 
-          l.id === layerId ? { ...l, file, fileUrl: url, fileName: file.name } : l
-        ), adminCanvasRef.current, localVideoElements);
-      }, 100);
     };
 
     const deleteLayer = (layerId) => {
-      // Удаляем видео элемент если есть
       if (localVideoElements[layerId]) {
         const video = localVideoElements[layerId];
         video.pause();
@@ -259,7 +171,6 @@ const VideoConstructor = () => {
         delete newVideoElements[layerId];
         setLocalVideoElements(newVideoElements);
       }
-      
       setLayers(layers.filter(layer => layer.id !== layerId));
     };
 
@@ -289,27 +200,24 @@ const VideoConstructor = () => {
         layers,
         resolution
       };
-      saveTemplate(template);
-      alert('Шаблон сохранён!');
+      localStorage.setItem('video-template', JSON.stringify(template));
+      alert('Шаблон сохранён локально!');
     };
 
     const togglePlayback = () => {
       if (localIsPlaying) {
-        // Останавливаем все видео
         Object.values(localVideoElements).forEach(video => {
           if (video) video.pause();
         });
         setLocalIsPlaying(false);
       } else {
-        // Запускаем все видео
         Object.values(localVideoElements).forEach(video => {
           if (video) video.play();
         });
         setLocalIsPlaying(true);
       }
     };
-
-    return (
+return (
       <div className="flex h-screen bg-gray-900 text-white">
         <div className="w-96 bg-gray-800 border-r border-gray-700 overflow-y-auto">
           <div className="p-4 border-b border-gray-700">
@@ -323,7 +231,6 @@ const VideoConstructor = () => {
               </button>
             </div>
 
-            {/* Разрешение */}
             <div className="mb-4">
               <label className="block text-sm mb-2">Разрешение видео</label>
               <div className="grid grid-cols-2 gap-2">
@@ -358,7 +265,6 @@ const VideoConstructor = () => {
               </div>
             </div>
 
-            {/* Название шаблона */}
             <div className="mb-4">
               <label className="block text-sm mb-2">Название шаблона</label>
               <input
@@ -370,7 +276,6 @@ const VideoConstructor = () => {
               />
             </div>
 
-            {/* Кнопки добавления */}
             <div className="space-y-2">
               <button
                 onClick={() => addLayer('background')}
@@ -404,7 +309,6 @@ const VideoConstructor = () => {
             </button>
           </div>
 
-          {/* Список слоёв */}
           <div className="p-4 space-y-3">
             <h2 className="text-lg font-semibold">Слои ({layers.length})</h2>
             
@@ -557,9 +461,7 @@ const VideoConstructor = () => {
       </div>
     );
   };
-
-  // Пользовательский интерфейс
-  const UserPage = () => {
+const UserPage = () => {
     const [userLayers, setUserLayers] = useState([]);
     const [availableOptions, setAvailableOptions] = useState([]);
     const userCanvasRef = useRef(null);
@@ -569,16 +471,15 @@ const VideoConstructor = () => {
     const [draggingLayer, setDraggingLayer] = useState(null);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
-    // Загружаем доступные опции из сохранённого шаблона
     useEffect(() => {
-      if (templates.length > 0) {
-        const template = templates[0];
+      const saved = localStorage.getItem('video-template');
+      if (saved) {
+        const template = JSON.parse(saved);
         const selectableItems = template.layers.filter(l => l.userSelectable);
         setAvailableOptions(selectableItems);
       }
-    }, [templates]);
+    }, []);
 
-    // Рендеринг пользовательского canvas
     useEffect(() => {
       if (userIsPlaying) {
         const animate = () => {
@@ -589,7 +490,6 @@ const VideoConstructor = () => {
       } else {
         renderCanvas(userLayers, userCanvasRef.current, userVideoElements);
       }
-
       return () => {
         if (userAnimationRef.current) {
           cancelAnimationFrame(userAnimationRef.current);
@@ -599,22 +499,18 @@ const VideoConstructor = () => {
 
     const selectOption = (option) => {
       const existingIndex = userLayers.findIndex(l => l.type === option.type);
-      
       const newLayer = { ...option, id: Date.now() };
-      
       const isVideo = option.fileName && (
         option.fileName.toLowerCase().endsWith('.mp4') ||
         option.fileName.toLowerCase().endsWith('.webm') ||
         option.fileName.toLowerCase().endsWith('.mov')
       );
-
       if (isVideo) {
         const video = document.createElement('video');
-        video.src = option.fileUrl;
+        video.src = getFileUrl(option.fileUrl);
         video.loop = true;
         video.muted = true;
         video.playsInline = true;
-        
         video.onloadeddata = () => {
           setUserVideoElements(prev => ({
             ...prev,
@@ -622,7 +518,6 @@ const VideoConstructor = () => {
           }));
         };
       }
-
       if (existingIndex >= 0) {
         const newLayers = [...userLayers];
         newLayers[existingIndex] = newLayer;
@@ -664,18 +559,14 @@ const VideoConstructor = () => {
       }
     };
 
-    // Drag & Drop на canvas
     const handleCanvasMouseDown = (e) => {
       const canvas = userCanvasRef.current;
       if (!canvas) return;
-
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
       const x = (e.clientX - rect.left) * scaleX;
       const y = (e.clientY - rect.top) * scaleY;
-
-      // Проверяем, попали ли мы в какой-то слой
       for (let i = userLayers.length - 1; i >= 0; i--) {
         const layer = userLayers[i];
         const centerX = canvas.width / 2;
@@ -684,7 +575,6 @@ const VideoConstructor = () => {
         const height = canvas.height * layer.scale;
         const layerX = centerX - width / 2 + layer.position.x;
         const layerY = centerY - height / 2 + layer.position.y;
-
         if (x >= layerX && x <= layerX + width && y >= layerY && y <= layerY + height) {
           setDraggingLayer(layer.id);
           setDragOffset({ x: x - layer.position.x, y: y - layer.position.y });
@@ -695,16 +585,13 @@ const VideoConstructor = () => {
 
     const handleCanvasMouseMove = (e) => {
       if (!draggingLayer) return;
-
       const canvas = userCanvasRef.current;
       if (!canvas) return;
-
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
       const x = (e.clientX - rect.left) * scaleX;
       const y = (e.clientY - rect.top) * scaleY;
-
       updateUserLayer(draggingLayer, {
         position: {
           x: x - dragOffset.x,
@@ -717,7 +604,6 @@ const VideoConstructor = () => {
       setDraggingLayer(null);
     };
 
-    // Touch события для планшета
     const handleCanvasTouchStart = (e) => {
       e.preventDefault();
       const touch = e.touches[0];
@@ -733,10 +619,8 @@ const VideoConstructor = () => {
     const handleCanvasTouchEnd = () => {
       handleCanvasMouseUp();
     };
-
-    return (
+return (
       <div className="flex h-screen bg-gray-900 text-white overflow-hidden">
-        {/* Левая панель - выбор элементов */}
         <div className="w-80 bg-gray-800 border-r border-gray-700 overflow-y-auto flex-shrink-0">
           <div className="p-4 border-b border-gray-700">
             <div className="flex justify-between items-center mb-4">
@@ -748,9 +632,7 @@ const VideoConstructor = () => {
                 Назад
               </button>
             </div>
-            <p className="text-sm text-gray-400">
-              Выберите элементы
-            </p>
+            <p className="text-sm text-gray-400">Выберите элементы</p>
           </div>
 
           <div className="p-4 space-y-4">
@@ -763,7 +645,6 @@ const VideoConstructor = () => {
               availableOptions.map(option => {
                 const isSelected = userLayers.some(l => l.name === option.name);
                 const selectedLayer = userLayers.find(l => l.name === option.name);
-                
                 return (
                   <div key={option.id} className="bg-gray-700 rounded overflow-hidden">
                     <div
@@ -772,13 +653,9 @@ const VideoConstructor = () => {
                     >
                       <div className="aspect-video bg-gray-800 rounded mb-2 flex items-center justify-center overflow-hidden">
                         {option.fileUrl ? (
-                          option.fileName && (
-                            option.fileName.toLowerCase().endsWith('.mp4') ||
-                            option.fileName.toLowerCase().endsWith('.webm') ||
-                            option.fileName.toLowerCase().endsWith('.mov')
-                          ) ? (
+                          option.fileName && /\.(mp4|webm|mov)$/i.test(option.fileName) ? (
                             <video
-                              src={option.fileUrl}
+                              src={getFileUrl(option.fileUrl)}
                               className="w-full h-full object-cover"
                               muted
                               loop
@@ -786,7 +663,7 @@ const VideoConstructor = () => {
                             />
                           ) : (
                             <img
-                              src={option.fileUrl}
+                              src={getFileUrl(option.fileUrl)}
                               alt={option.name}
                               className="w-full h-full object-cover"
                             />
@@ -806,7 +683,6 @@ const VideoConstructor = () => {
                       </div>
                     </div>
 
-                    {/* Настройки под каждым превью */}
                     {isSelected && selectedLayer && (
                       <div className="p-3 bg-gray-800 space-y-3 border-t border-gray-700">
                         <div>
@@ -856,7 +732,6 @@ const VideoConstructor = () => {
           </div>
         </div>
 
-        {/* Правая панель - превью */}
         <div className="flex-1 flex flex-col min-w-0">
           <div className="flex-1 flex items-center justify-center bg-black p-4">
             <div className="relative">
@@ -881,7 +756,7 @@ const VideoConstructor = () => {
                 onTouchEnd={handleCanvasTouchEnd}
               />
               <div className="absolute top-2 left-2 bg-blue-600 bg-opacity-90 text-white px-3 py-1 rounded text-sm">
-                💡 Перетаскивайте элементы на экране
+                💡 Перетаскивайте элементы
               </div>
             </div>
           </div>
@@ -910,7 +785,6 @@ const VideoConstructor = () => {
     );
   };
 
-  // Экран (лайфвью)
   const DisplayPage = () => {
     const displayCanvasRef = useRef(null);
     const [displayVideoElements, setDisplayVideoElements] = useState({});
@@ -918,29 +792,21 @@ const VideoConstructor = () => {
     const displayAnimationRef = useRef(null);
     const [displayLayers, setDisplayLayers] = useState([]);
 
-    // Загружаем данные при открытии
     useEffect(() => {
-      // Здесь должна быть загрузка актуальной композиции
-      // Пока используем моковые данные из шаблона
-      if (templates.length > 0) {
-        const template = templates[0];
+      const saved = localStorage.getItem('video-template');
+      if (saved) {
+        const template = JSON.parse(saved);
         setDisplayLayers(template.layers);
-
-        // Создаём видео элементы
         template.layers.forEach(layer => {
           if (layer.fileUrl && layer.fileName) {
-            const isVideo = layer.fileName.toLowerCase().endsWith('.mp4') ||
-                          layer.fileName.toLowerCase().endsWith('.webm') ||
-                          layer.fileName.toLowerCase().endsWith('.mov');
-            
+            const isVideo = /\.(mp4|webm|mov)$/i.test(layer.fileName);
             if (isVideo) {
               const video = document.createElement('video');
-              video.src = layer.fileUrl;
+              video.src = getFileUrl(layer.fileUrl);
               video.loop = true;
               video.muted = true;
               video.playsInline = true;
               video.autoplay = true;
-              
               video.onloadeddata = () => {
                 video.play();
                 setDisplayVideoElements(prev => ({
@@ -952,9 +818,8 @@ const VideoConstructor = () => {
           }
         });
       }
-    }, [templates]);
+    }, []);
 
-    // Рендеринг
     useEffect(() => {
       if (displayIsPlaying) {
         const animate = () => {
@@ -965,7 +830,6 @@ const VideoConstructor = () => {
       } else {
         renderCanvas(displayLayers, displayCanvasRef.current, displayVideoElements);
       }
-
       return () => {
         if (displayAnimationRef.current) {
           cancelAnimationFrame(displayAnimationRef.current);
@@ -998,7 +862,6 @@ const VideoConstructor = () => {
           />
         </div>
 
-        {/* Панель управления (появляется при наведении) */}
         <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gray-800 bg-opacity-90 rounded-lg p-3 flex gap-3">
           <button
             onClick={() => setDisplayIsPlaying(!displayIsPlaying)}
@@ -1025,9 +888,7 @@ const VideoConstructor = () => {
       </div>
     );
   };
-
-  // Роутинг
-  return (
+return (
     <>
       {currentPage === 'menu' && <MenuPage />}
       {currentPage === 'admin' && <AdminPage />}
